@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据库浏览器 - Yuki Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --primary: #60a5fa;
+            --secondary: #a7f3d0;
+        }
+        body {
+            min-height: 100vh;
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-image: url('/admin/static/images/yuki_bg.png');
+            background-size: cover;
+            background-position: center;
+            filter: blur(3px);
+            z-index: -1;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.3);
+            z-index: -1;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .nav-link {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            color: #4b5563;
+        }
+        .nav-link:hover { background: rgba(96, 165, 250, 0.1); }
+        .nav-link.active {
+            background: linear-gradient(135deg, #60a5fa, #818cf8);
+            color: white;
+        }
+        .sidebar-item {
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .sidebar-item:hover { background: rgba(96, 165, 250, 0.1); }
+        .sidebar-item.active {
+            background: rgba(96, 165, 250, 0.2);
+            color: #2563eb;
+            font-weight: 500;
+        }
+        .data-table {
+            font-size: 0.8rem;
+        }
+        .data-table th {
+            background: #f3f4f6;
+            position: sticky;
+            top: 0;
+        }
+        .data-table td, .data-table th {
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .data-table tr:hover td { background: #f9fafb; }
+        .sql-input {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <!-- 顶部导航 -->
+    <header class="max-w-7xl mx-auto mb-6">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-indigo-400 flex items-center justify-center text-2xl shadow-lg">
+                    🗂
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">SQLite 数据库浏览器</h1>
+                    <p class="text-gray-500 text-sm">查看项目中的数据库内容（只读）</p>
+                </div>
+            </div>
+            <nav class="flex gap-2" id="navLinks">
+                <a href="/admin" class="nav-link">📊 仪表盘</a>
+                <a href="/admin/affection" class="nav-link">💗 好感度</a>
+                <a href="/admin/db" class="nav-link active">🗂 数据库</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto">
+        <div class="grid grid-cols-12 gap-4">
+            <!-- 左侧：数据库和表列表 -->
+            <div class="col-span-12 md:col-span-3 space-y-4">
+                <!-- 数据库列表 -->
+                <div class="card p-4">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        <span>📁</span> 数据库文件
+                    </h3>
+                    <div id="dbList" class="space-y-1 max-h-48 overflow-y-auto">
+                        <div class="text-gray-400 text-sm">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 表列表 -->
+                <div class="card p-4">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        <span>📋</span> 表 <span id="currentDbName" class="text-xs text-gray-400 font-normal"></span>
+                    </h3>
+                    <div id="tableList" class="space-y-1 max-h-64 overflow-y-auto">
+                        <div class="text-gray-400 text-sm">请先选择数据库</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：数据预览 -->
+            <div class="col-span-12 md:col-span-9 space-y-4">
+                <!-- 数据表格 -->
+                <div class="card p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="font-semibold text-gray-700 flex items-center gap-2">
+                            <span>📊</span> 数据预览
+                            <span id="currentTableName" class="text-sm text-blue-500 font-normal"></span>
+                        </h3>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span id="rowInfo" class="text-gray-500"></span>
+                            <button onclick="prevPage()" id="prevBtn" class="px-2 py-1 border rounded hover:bg-gray-100 disabled:opacity-50" disabled>◀</button>
+                            <span id="pageInfo" class="text-gray-600">-</span>
+                            <button onclick="nextPage()" id="nextBtn" class="px-2 py-1 border rounded hover:bg-gray-100 disabled:opacity-50" disabled>▶</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto max-h-96 overflow-y-auto border rounded-lg">
+                        <table class="w-full data-table">
+                            <thead id="dataHead"></thead>
+                            <tbody id="dataBody">
+                                <tr><td class="text-center text-gray-400 py-8">请选择一张表查看数据</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- SQL 查询 -->
+                <div class="card p-4">
+                    <h3 class="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        <span>⚡</span> SQL 查询 <span class="text-xs text-gray-400 font-normal">（仅支持 SELECT）</span>
+                    </h3>
+                    <div class="flex gap-2 mb-3">
+                        <textarea id="sqlInput" rows="2" placeholder="SELECT * FROM table_name LIMIT 10"
+                            class="sql-input flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"></textarea>
+                        <button onclick="runQuery()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 self-end">
+                            执行
+                        </button>
+                    </div>
+                    <div id="queryResult" class="overflow-x-auto max-h-64 overflow-y-auto border rounded-lg hidden">
+                        <table class="w-full data-table">
+                            <thead id="queryHead"></thead>
+                            <tbody id="queryBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="queryError" class="text-red-500 text-sm hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center text-gray-400 text-sm mt-6 pb-4">
+            ⚠️ 只读模式 · 仅允许查看 data/ 目录下的数据库
+        </footer>
+    </main>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token') || '';
+
+        let currentDb = '';
+        let currentTable = '';
+        let currentPage = 1;
+        let totalRows = 0;
+        const pageSize = 50;
+
+        // 加载数据库列表
+        async function loadDbFiles() {
+            try {
+                const res = await fetch(`/admin/api/db/files?token=${token}`);
+                const result = await res.json();
+                if (!result.success) return;
+
+                const container = document.getElementById('dbList');
+                if (result.data.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-sm">未找到数据库文件</div>';
+                    return;
+                }
+
+                container.innerHTML = result.data.map(db => `
+                    <div class="sidebar-item flex justify-between items-center" onclick="selectDb('${db.path}')">
+                        <span class="truncate" title="${db.path}">${db.name}</span>
+                        <span class="text-xs text-gray-400">${db.size}</span>
+                    </div>
+                `).join('');
+
+                // 默认选中第一个
+                if (result.data.length > 0) {
+                    selectDb(result.data[0].path);
+                }
+            } catch (e) {
+                console.error('Failed to load db files:', e);
+            }
+        }
+
+        // 选择数据库
+        async function selectDb(dbPath) {
+            currentDb = dbPath;
+            currentTable = '';
+            document.getElementById('currentDbName').textContent = `(${dbPath.split('/').pop()})`;
+
+            // 更新选中状态
+            document.querySelectorAll('#dbList .sidebar-item').forEach(el => {
+                el.classList.toggle('active', el.textContent.includes(dbPath.split('/').pop()));
+            });
+
+            // 加载表列表
+            try {
+                const res = await fetch(`/admin/api/db/tables?token=${token}&db=${encodeURIComponent(dbPath)}`);
+                const result = await res.json();
+                if (!result.success) {
+                    document.getElementById('tableList').innerHTML = `<div class="text-red-400 text-sm">${result.error}</div>`;
+                    return;
+                }
+
+                const container = document.getElementById('tableList');
+                if (result.data.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-sm">该数据库没有表</div>';
+                    return;
+                }
+
+                container.innerHTML = result.data.map(t => `
+                    <div class="sidebar-item flex justify-between items-center" onclick="selectTable('${t.name}')">
+                        <span>${t.name}</span>
+                        <span class="text-xs text-gray-400">${t.rows >= 0 ? t.rows + ' 行' : '?'}</span>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to load tables:', e);
+            }
+
+            // 清空数据预览
+            document.getElementById('currentTableName').textContent = '';
+            document.getElementById('dataHead').innerHTML = '';
+            document.getElementById('dataBody').innerHTML = '<tr><td class="text-center text-gray-400 py-8">请选择一张表查看数据</td></tr>';
+            updatePagination(0, 1);
+        }
+
+        // 选择表
+        async function selectTable(tableName) {
+            currentTable = tableName;
+            currentPage = 1;
+            document.getElementById('currentTableName').textContent = tableName;
+
+            // 更新选中状态
+            document.querySelectorAll('#tableList .sidebar-item').forEach(el => {
+                el.classList.toggle('active', el.textContent.includes(tableName));
+            });
+
+            await loadTableData();
+        }
+
+        // 加载表数据
+        async function loadTableData() {
+            if (!currentDb || !currentTable) return;
+
+            try {
+                const url = `/admin/api/db/table?token=${token}&db=${encodeURIComponent(currentDb)}&table=${encodeURIComponent(currentTable)}&page=${currentPage}&page_size=${pageSize}`;
+                const res = await fetch(url);
+                const result = await res.json();
+
+                if (!result.success) {
+                    document.getElementById('dataBody').innerHTML = `<tr><td class="text-center text-red-400 py-8">${result.error}</td></tr>`;
+                    return;
+                }
+
+                const { columns, rows, total } = result.data;
+                totalRows = total;
+
+                // 渲染表头
+                document.getElementById('dataHead').innerHTML = `
+                    <tr>${columns.map(c => `<th class="text-left">${c}</th>`).join('')}</tr>
+                `;
+
+                // 渲染数据
+                if (rows.length === 0) {
+                    document.getElementById('dataBody').innerHTML = '<tr><td class="text-center text-gray-400 py-8" colspan="' + columns.length + '">表中没有数据</td></tr>';
+                } else {
+                    document.getElementById('dataBody').innerHTML = rows.map(row => `
+                        <tr>${row.map(cell => `<td title="${escapeHtml(String(cell ?? ''))}">${escapeHtml(String(cell ?? 'NULL'))}</td>`).join('')}</tr>
+                    `).join('');
+                }
+
+                updatePagination(total, currentPage);
+            } catch (e) {
+                console.error('Failed to load table data:', e);
+            }
+        }
+
+        function updatePagination(total, page) {
+            const totalPages = Math.ceil(total / pageSize) || 1;
+            document.getElementById('rowInfo').textContent = `共 ${total} 行`;
+            document.getElementById('pageInfo').textContent = `${page} / ${totalPages}`;
+            document.getElementById('prevBtn').disabled = page <= 1;
+            document.getElementById('nextBtn').disabled = page >= totalPages;
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadTableData();
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(totalRows / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadTableData();
+            }
+        }
+
+        // SQL 查询
+        async function runQuery() {
+            const sql = document.getElementById('sqlInput').value.trim();
+            if (!sql) return;
+            if (!currentDb) {
+                alert('请先选择一个数据库');
+                return;
+            }
+
+            document.getElementById('queryError').classList.add('hidden');
+            document.getElementById('queryResult').classList.add('hidden');
+
+            try {
+                const res = await fetch(`/admin/api/db/query?token=${token}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ db: currentDb, sql: sql })
+                });
+                const result = await res.json();
+
+                if (!result.success) {
+                    document.getElementById('queryError').textContent = result.error;
+                    document.getElementById('queryError').classList.remove('hidden');
+                    return;
+                }
+
+                const { columns, rows } = result.data;
+                document.getElementById('queryHead').innerHTML = `
+                    <tr>${columns.map(c => `<th class="text-left">${c}</th>`).join('')}</tr>
+                `;
+                document.getElementById('queryBody').innerHTML = rows.length === 0
+                    ? `<tr><td class="text-center text-gray-400 py-4" colspan="${columns.length}">查询结果为空</td></tr>`
+                    : rows.map(row => `
+                        <tr>${row.map(cell => `<td title="${escapeHtml(String(cell ?? ''))}">${escapeHtml(String(cell ?? 'NULL'))}</td>`).join('')}</tr>
+                    `).join('');
+
+                document.getElementById('queryResult').classList.remove('hidden');
+            } catch (e) {
+                document.getElementById('queryError').textContent = '请求失败: ' + e.message;
+                document.getElementById('queryError').classList.remove('hidden');
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDbFiles();
+
+            // 给导航链接添加 token 参数
+            if (token) {
+                document.querySelectorAll('#navLinks a').forEach(a => {
+                    a.href += '?token=' + token;
+                });
+            }
+        });
+
+        // Ctrl+Enter 执行查询
+        document.getElementById('sqlInput').addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'Enter') runQuery();
+        });
+    </script>
+</body>
+</html>

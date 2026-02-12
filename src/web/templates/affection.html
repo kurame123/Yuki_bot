@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>好感度管理 - Yuki Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #f472b6;
+            --secondary: #fda4af;
+            --accent: #60a5fa;
+        }
+        body {
+            min-height: 100vh;
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-image: url('/admin/static/images/yuki_bg.png');
+            background-size: cover;
+            background-position: center;
+            filter: blur(3px);
+            z-index: -1;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.3);
+            z-index: -1;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f472b6, #fda4af);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .nav-link {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+        .nav-link:hover { background: rgba(244, 114, 182, 0.1); }
+        .nav-link.active {
+            background: linear-gradient(135deg, #f472b6, #fda4af);
+            color: white;
+        }
+        .level-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .level--2 { background: #1f2937; color: #f3f4f6; } /* 讨厌 */
+        .level--1 { background: #374151; color: #e5e7eb; } /* 差劲 */
+        .level-0 { background: #6b7280; color: #f9fafb; } /* 不起眼 */
+        .level-1 { background: #9ca3af; color: #ffffff; } /* 陌生 */
+        .level-2 { background: #dbeafe; color: #3b82f6; } /* 一般 */
+        .level-3 { background: #d1fae5; color: #10b981; } /* 稍熟 */
+        .level-4 { background: #fef3c7; color: #f59e0b; } /* 熟悉 */
+        .level-5 { background: #fee2e2; color: #ef4444; } /* 热情 */
+        .level-6 { background: #fce7f3; color: #ec4899; } /* 亲密 */
+        .level-7 { background: #ede9fe; color: #8b5cf6; } /* 喜欢 */
+        .level-8 { background: linear-gradient(135deg, #fda4af, #f472b6); color: white; } /* 喜欢+ */
+        .level-9 { background: linear-gradient(135deg, #f472b6, #ec4899); color: white; } /* 爱慕 */
+        .level-10 { background: linear-gradient(135deg, #ec4899, #db2777); color: white; } /* 深爱 */
+        .level-11 { background: linear-gradient(135deg, #db2777, #be185d); color: white; } /* 挚爱 */
+        .level-12 { background: linear-gradient(135deg, #be185d, #9f1239); color: white; } /* 命运 */
+        .level-13 { background: linear-gradient(135deg, #9f1239, #881337, #fbbf24); color: white; font-weight: bold; } /* 永恒 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.show { display: flex; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <!-- 顶部导航 -->
+    <header class="max-w-6xl mx-auto mb-8">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-16 h-16 rounded-full bg-gradient-to-br from-pink-400 to-rose-300 flex items-center justify-center text-3xl shadow-lg">
+                    💗
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Yuki 好感度管理</h1>
+                    <p class="text-gray-500 text-sm">查看和调整用户与 Yuki 的亲密度</p>
+                </div>
+            </div>
+            <!-- 导航按钮 -->
+            <nav class="flex gap-2" id="navLinks">
+                <a href="/admin" class="nav-link text-gray-600">📊 仪表盘</a>
+                <a href="/admin/affection" class="nav-link active">💗 好感度</a>
+                <a href="/admin/db" class="nav-link">🗂 数据库</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">👥</span>
+                    <span class="text-gray-600 font-medium">总用户数</span>
+                </div>
+                <div class="stat-value" id="total_users">0</div>
+                <div class="text-sm text-gray-400 mt-2">有好感度记录的用户</div>
+            </div>
+
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">💕</span>
+                    <span class="text-gray-600 font-medium">平均好感度</span>
+                </div>
+                <div class="stat-value" id="avg_score">0.0</div>
+                <div class="text-sm text-gray-400 mt-2">所有用户平均分</div>
+            </div>
+
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">⭐</span>
+                    <span class="text-gray-600 font-medium">满级用户</span>
+                </div>
+                <div class="stat-value" id="max_level_count">0</div>
+                <div class="text-sm text-gray-400 mt-2">达到「永恒」的用户</div>
+            </div>
+
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">🌟</span>
+                    <span class="text-gray-600 font-medium">高好感用户</span>
+                </div>
+                <div class="stat-value" id="high_level_count">0</div>
+                <div class="text-sm text-gray-400 mt-2">等级 ≥ 7（喜欢）</div>
+            </div>
+        </div>
+
+        <!-- 图表和列表 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- 等级分布图 -->
+            <div class="card p-6">
+                <h3 class="text-gray-700 font-semibold mb-4">📊 等级分布</h3>
+                <canvas id="levelChart" height="250"></canvas>
+            </div>
+
+            <!-- 用户列表 -->
+            <div class="card p-6 lg:col-span-2">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <h3 class="text-gray-700 font-semibold">👤 用户列表</h3>
+                    <div class="flex gap-2 flex-wrap">
+                        <select id="levelFilter" class="px-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
+                            <option value="">全部等级</option>
+                            <option value="-2">-2 - 讨厌</option>
+                            <option value="-1">-1 - 差劲</option>
+                            <option value="0">0 - 不起眼</option>
+                            <option value="1">1 - 陌生</option>
+                            <option value="2">2 - 一般</option>
+                            <option value="3">3 - 稍熟</option>
+                            <option value="4">4 - 熟悉</option>
+                            <option value="5">5 - 热情</option>
+                            <option value="6">6 - 亲密</option>
+                            <option value="7">7 - 喜欢</option>
+                            <option value="8">8 - 喜欢+</option>
+                            <option value="9">9 - 爱慕</option>
+                            <option value="10">10 - 深爱</option>
+                            <option value="11">11 - 挚爱</option>
+                            <option value="12">12 - 命运</option>
+                            <option value="13">13 - 永恒</option>
+                        </select>
+                        <input type="text" id="searchInput" placeholder="搜索用户ID..."
+                               class="px-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
+                        <button onclick="loadList(1)" class="px-3 py-1.5 bg-pink-500 text-white rounded-lg text-sm hover:bg-pink-600">
+                            🔍 搜索
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 表格 -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b">
+                                <th class="text-left py-3 px-2">用户 ID</th>
+                                <th class="text-left py-3 px-2">好感度</th>
+                                <th class="text-left py-3 px-2">等级</th>
+                                <th class="text-left py-3 px-2">互动次数</th>
+                                <th class="text-left py-3 px-2">最近互动</th>
+                                <th class="text-left py-3 px-2">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <tr><td colspan="6" class="text-center py-8 text-gray-400">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 分页 -->
+                <div class="flex items-center justify-between mt-4 text-sm text-gray-500">
+                    <span id="pageInfo">第 1 页，共 0 条</span>
+                    <div class="flex gap-2">
+                        <button onclick="prevPage()" id="prevBtn" class="px-3 py-1 border rounded hover:bg-gray-100 disabled:opacity-50">上一页</button>
+                        <button onclick="nextPage()" id="nextBtn" class="px-3 py-1 border rounded hover:bg-gray-100 disabled:opacity-50">下一页</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center text-gray-400 text-sm mt-8 pb-4">
+            <span class="pulse">🟢</span> 实时更新中 · 最后更新: <span id="last_update">-</span>
+        </footer>
+    </main>
+
+    <!-- 修改好感度弹窗 -->
+    <div id="editModal" class="modal">
+        <div class="card p-6 w-96">
+            <h3 class="text-lg font-semibold mb-4">✏️ 修改好感度</h3>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-600 mb-1">用户 ID</label>
+                <input type="text" id="editUserId" readonly class="w-full px-3 py-2 border rounded-lg bg-gray-50">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-600 mb-1">当前分数</label>
+                <input type="text" id="editCurrentScore" readonly class="w-full px-3 py-2 border rounded-lg bg-gray-50">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-600 mb-1">新分数 (0.1 - 10.0)</label>
+                <input type="number" id="editNewScore" min="0.1" max="10" step="0.1"
+                       class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300">
+            </div>
+            <div class="flex gap-2 justify-end">
+                <button onclick="closeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-100">取消</button>
+                <button onclick="saveScore()" class="px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token') || '';
+
+        let levelChart = null;
+        let currentPage = 1;
+        let totalItems = 0;
+        const pageSize = 15;
+
+        const levelNames = {
+            '-2': '讨厌', '-1': '差劲', '0': '不起眼',
+            '1': '陌生', '2': '一般', '3': '稍熟', '4': '熟悉',
+            '5': '热情', '6': '亲密', '7': '喜欢', '8': '喜欢+',
+            '9': '爱慕', '10': '深爱', '11': '挚爱', '12': '命运', '13': '永恒'
+        };
+
+        // 加载总览数据
+        async function loadOverview() {
+            try {
+                const res = await fetch(`/admin/api/affection/overview?token=${token}`);
+                const result = await res.json();
+                if (!result.success) return;
+
+                const data = result.data;
+                document.getElementById('total_users').textContent = data.total_users;
+                document.getElementById('avg_score').textContent = data.avg_score.toFixed(1);
+                document.getElementById('max_level_count').textContent = data.level_counts[13] || 0;
+
+                // 高好感用户（等级 >= 7）
+                let highCount = 0;
+                for (let i = 7; i <= 13; i++) {
+                    highCount += (data.level_counts[i] || 0);
+                }
+                document.getElementById('high_level_count').textContent = highCount;
+
+                // 更新图表
+                updateLevelChart(data.level_counts);
+                document.getElementById('last_update').textContent = new Date().toLocaleTimeString();
+            } catch (e) {
+                console.error('Failed to load overview:', e);
+            }
+        }
+
+        // 初始化等级分布图
+        function initLevelChart() {
+            const ctx = document.getElementById('levelChart').getContext('2d');
+            levelChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.values(levelNames),
+                    datasets: [{
+                        label: '用户数',
+                        data: Array(16).fill(0), // -2 到 13 共 16 个等级
+                        backgroundColor: [
+                            '#1f2937', '#374151', '#6b7280', '#9ca3af', // 讨厌到陌生
+                            '#dbeafe', '#d1fae5', '#fef3c7', '#fee2e2', // 一般到热情
+                            '#fce7f3', '#ede9fe', '#f472b6', '#ec4899', // 亲密到爱慕
+                            '#db2777', '#be185d', '#9f1239', '#881337'  // 深爱到永恒
+                        ],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        }
+
+        function updateLevelChart(levelCounts) {
+            const data = [];
+            for (let i = -2; i <= 13; i++) {
+                data.push(levelCounts[i] || 0);
+            }
+            levelChart.data.datasets[0].data = data;
+            levelChart.update();
+        }
+
+        // 加载用户列表
+        async function loadList(page = 1) {
+            currentPage = page;
+            const level = document.getElementById('levelFilter').value;
+            const keyword = document.getElementById('searchInput').value;
+
+            let url = `/admin/api/affection/list?token=${token}&page=${page}&page_size=${pageSize}`;
+            if (level) url += `&level=${level}`;
+            if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+
+            try {
+                const res = await fetch(url);
+                const result = await res.json();
+                if (!result.success) return;
+
+                const data = result.data;
+                totalItems = data.total;
+                renderTable(data.items);
+                updatePagination();
+            } catch (e) {
+                console.error('Failed to load list:', e);
+            }
+        }
+
+        function renderTable(items) {
+            const tbody = document.getElementById('userTableBody');
+            if (items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">暂无数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = items.map(item => `
+                <tr class="border-b hover:bg-pink-50/50">
+                    <td class="py-3 px-2 font-mono">${item.user_id}</td>
+                    <td class="py-3 px-2 font-semibold text-pink-600">${item.score}</td>
+                    <td class="py-3 px-2">
+                        <span class="level-badge level-${item.level}">${item.level_name}</span>
+                    </td>
+                    <td class="py-3 px-2">${item.total_interactions}</td>
+                    <td class="py-3 px-2 text-gray-500">${formatTime(item.last_interact_at)}</td>
+                    <td class="py-3 px-2">
+                        <button onclick="openEditModal('${item.user_id}', ${item.score})"
+                                class="text-pink-500 hover:text-pink-700">✏️ 调整</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '-';
+            const d = new Date(isoStr);
+            return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+        }
+
+        function updatePagination() {
+            const totalPages = Math.ceil(totalItems / pageSize);
+            document.getElementById('pageInfo').textContent = `第 ${currentPage} 页，共 ${totalItems} 条`;
+            document.getElementById('prevBtn').disabled = currentPage <= 1;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+        }
+
+        function prevPage() { if (currentPage > 1) loadList(currentPage - 1); }
+        function nextPage() { loadList(currentPage + 1); }
+
+        // 编辑弹窗
+        function openEditModal(userId, score) {
+            document.getElementById('editUserId').value = userId;
+            document.getElementById('editCurrentScore').value = score;
+            document.getElementById('editNewScore').value = score;
+            document.getElementById('editModal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('show');
+        }
+
+        async function saveScore() {
+            const userId = document.getElementById('editUserId').value;
+            const newScore = parseFloat(document.getElementById('editNewScore').value);
+
+            if (isNaN(newScore) || newScore < 0.1 || newScore > 10) {
+                alert('分数必须在 0.1 到 10 之间');
+                return;
+            }
+
+            try {
+                const res = await fetch(`/admin/api/affection/update?token=${token}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, score: newScore })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    closeModal();
+                    loadOverview();
+                    loadList(currentPage);
+                } else {
+                    alert('修改失败: ' + result.error);
+                }
+            } catch (e) {
+                alert('请求失败');
+            }
+        }
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', () => {
+            initLevelChart();
+            loadOverview();
+            loadList(1);
+
+            // 给导航链接添加 token 参数
+            if (token) {
+                document.querySelectorAll('#navLinks a').forEach(a => {
+                    a.href += '?token=' + token;
+                });
+            }
+
+            setInterval(loadOverview, 30000);
+        });
+
+        // 回车搜索
+        document.getElementById('searchInput').addEventListener('keypress', e => {
+            if (e.key === 'Enter') loadList(1);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+# 歌词总结插件配置
+
+[general]
+enable = true
+# 总结字数上限
+max_chars = 180
+# 冷却时间（秒）
+cooldown_seconds = 10
+
+[prompt]
+# 给推理模型的提示词（客观总结，不要写成鉴赏作文）
+template = """你将收到一首歌的歌词（已去除时间戳等噪声）。
+请客观总结：歌词写了什么、表达了什么、主要情感是什么。
+
+要求：
+- 用中文输出
+- 不超过 {max_chars} 字
+- 不要使用编号、不要引用歌词原句、不要扩写故事
+- 只输出总结正文，不要有任何前缀或后缀
+
+只输出总结正文。"""
+
+[qq]
+enable = true
+# QQ 音乐歌词接口配置
+base_url = "http://127.0.0.1:3101"
+lyrics_path = "/lyrics"
+# 接口参数名（通常是 songmid）
+songmid_param = "songmid"
+
+[netease]
+enable = false
+# 网易云音乐歌词接口配置
+base_url = "http://127.0.0.1:3000"
+lyrics_path = "/lyric"
+# 接口参数名（通常是 id）
+id_param = "id"

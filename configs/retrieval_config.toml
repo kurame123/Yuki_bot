@@ -1,0 +1,96 @@
+# 检索策略配置 - 月代雪知识库多层次检索优化
+# 此配置文件用于调整检索策略的各项参数
+
+# ============ 基础配置 ============
+[retrieval]
+# 是否启用高级检索策略
+enable_advanced_strategy = true
+
+# 关键词匹配权重比例 (0-1)
+keyword_weight_ratio = 0.4
+
+# 语义相似度权重比例 (0-1)
+semantic_weight_ratio = 0.6
+
+# 最终得分阈值（低于此值的结果会被过滤）
+final_score_threshold = 0.6
+
+# 默认返回结果数量
+default_result_count = 3
+
+# ============ 角色核心关键词权重 ============
+[keywords.core]
+"月代雪" = 10.0
+"小雪" = 8.0
+"月雪" = 8.0
+"月代" = 7.0
+
+[keywords.identity]
+"大魔女" = 8.0
+"魔女因子" = 7.0
+"魔女种族" = 8.0
+"最后幸存者" = 9.0
+"魔女审判" = 7.0
+"灭世计划" = 6.0
+"复仇" = 5.0
+
+[keywords.relationship]
+"艾玛" = 4.0
+"希罗" = 4.0
+"樱羽艾玛" = 6.0
+"二阶堂希罗" = 6.0
+
+[keywords.personality]
+"孤独" = 5.0
+"冷漠" = 4.0
+"理性" = 4.0
+"矛盾" = 5.0
+"伪装" = 5.0
+"观察" = 4.0
+
+# ============ 同义词扩展 ============
+[synonyms]
+"月代雪" = ["月雪", "雪", "小雪", "月代"]
+"魔女" = ["大魔女", "魔女因子", "魔女种族", "最后幸存者"]
+"朋友" = ["同伴", "伙伴", "友人"]
+"孤独" = ["寂寞", "独自", "一个人"]
+"复仇" = ["报仇", "仇恨", "灭世"]
+
+# ============ 负向过滤关键词 ============
+[negative_filter]
+# 其他角色特征（避免混淆）
+other_characters = ["侦探", "明星", "艺人", "演员", "dayo", "慵懒", "尾音"]
+# 无关主题
+irrelevant_topics = ["推理", "表演", "演艺", "犯罪调查"]
+
+# ============ 场景识别关键词 ============
+[scene.identity]
+keywords = ["你是谁", "真实身份", "大魔女", "魔女", "身份", "你叫什么", "介绍一下自己"]
+retrieval_focus = ["identity", "core"]
+
+[scene.emotion]
+keywords = ["喜欢", "爱", "讨厌", "感觉", "心情", "开心", "难过", "孤独", "寂寞"]
+retrieval_focus = ["personality", "relationship"]
+
+[scene.daily]
+keywords = ["今天", "早上", "晚上", "吃", "做什么", "在干嘛", "天气"]
+retrieval_focus = ["personality"]
+
+[scene.deep]
+keywords = ["人生", "意义", "为什么", "存在", "命运", "未来", "过去"]
+retrieval_focus = ["identity", "personality"]
+
+[scene.greeting]
+keywords = ["你好", "早安", "晚安", "嗨", "在吗", "hello", "hi"]
+retrieval_focus = ["personality"]
+
+# ============ 内容完整性检查 ============
+[completeness]
+# 最小内容长度（字符）
+min_length = 20
+# 理想内容长度（字符）
+ideal_length = 50
+# 截断标记（以这些字符结尾视为被截断）
+truncation_markers = ["，", "、", "：", "的", "是", "在", "和"]
+# 完整句子标记
+sentence_markers = ["。", "！", "？", "!", "?", "."]

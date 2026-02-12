@@ -1,0 +1,649 @@
+"""
+向量服务 - 集成 ChromaDB 实现长期记忆存储和检索
+负责将文本转换为向量，并在向量数据库中存储和查询
+
+v2.0 更新：
+- 集成多层次检索策略
+- 支持场景感知检索
+- 关键词权重优化
+- 检索结果重排序
+"""
+import os
+import time
+import httpx
+from typing import List, Optional, Dict, Any
+from pathlib import Path
+
+try:
+    import chromadb
+    from chromadb import Documents, EmbeddingFunction, Embeddings
+except ImportError:
+    raise ImportError("Please install chromadb: pip install chromadb")
+
+from src.core.config_manager import ConfigManager
+from src.core.logger import logger
+from src.services.retrieval_strategy import (
+    RetrievalStrategy, 
+    get_retrieval_strategy,
+    SceneType
+)
+
+
+class SiliconFlowEmbedding(EmbeddingFunction):
+    """
+    自定义嵌入函数，调用 API 生成向量
+    支持多供应商配置
+    """
+    
+    def __init__(self):
+        """初始化嵌入函数"""
+        self.ai_config = ConfigManager.get_ai_config()
+        
+        # 获取嵌入模型的供应商配置
+        embedding_config = self.ai_config.embedding
+        provider_name = getattr(embedding_config, 'provider', '') or self.ai_config.common.default_provider
+        
+        # 从 providers 获取配置
+        providers = getattr(self.ai_config, 'providers', {})
+        if provider_name in providers:
+            provider = providers[provider_name]
+            self.base_url = provider.api_base
+            self.api_key = provider.api_key
+            self.timeout = provider.timeout
+        else:
+            # 兼容旧配置或抛出错误
+            if hasattr(self.ai_config.common, 'api_base') and self.ai_config.common.api_base:
+                self.base_url = self.ai_config.common.api_base
+                self.api_key = self.ai_config.common.api_key
+                self.timeout = self.ai_config.common.timeout
+            else:
+                raise ValueError(f"未找到供应商配置: {provider_name}")
+        
+        self.model = embedding_config.model_name
+        
+        logger.info(f"🧠 初始化嵌入函数: {self.model} (provider: {provider_name})")
+
+    def __call__(self, input: Documents) -> Embeddings:
+        """
+        将文本列表转换为向量列表
+        
+        Args:
+            input: 文本列表
+            
+        Returns:
+            向量列表
+        """
+        embeddings = []
+        for text in input:
+            try:
+                emb = self._get_embedding_sync(text)
+                embeddings.append(emb)
+            except Exception as e:
+                logger.error(f"❌ 生成嵌入失败: {e}")
+                # 返回零向量作为降级方案
+                embeddings.append([0.0] * self.ai_config.embedding.vector_dim)
+        
+        return embeddings
+
+    def _get_embedding_sync(self, text: str) -> List[float]:
+        """
+        同步调用硅基流动 Embedding API
+        
+        Args:
+            text: 要转换的文本
+            
+        Returns:
+            向量列表
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": self.model,
+            "input": text,
+            "encoding_format": "float"
+        }
+        
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.post(
+                    f"{self.base_url}/embeddings",
+                    json=payload,
+                    headers=headers
+                )
+                resp.raise_for_status()
+                
+                result = resp.json()
+                if 'data' in result and len(result['data']) > 0:
+                    return result['data'][0]['embedding']
+                else:
+                    logger.error(f"❌ API 返回异常: {result}")
+                    return [0.0] * self.ai_config.embedding.vector_dim
+                    
+        except httpx.TimeoutException:
+            logger.error("❌ 向量 API 请求超时")
+            return [0.0] * self.ai_config.embedding.vector_dim
+        except Exception as e:
+            logger.error(f"❌ 向量 API 请求失败: {e}")
+            return [0.0] * self.ai_config.embedding.vector_dim
+
+
+class VectorService:
+    """
+    向量数据库服务
+    
+    功能：
+    1. 存储聊天记录到向量数据库
+    2. 检索相关历史记忆
+    3. 管理用户的长期记忆
+    """
+    
+    def __init__(self):
+        """初始化向量服务"""
+        try:
+            bot_config = ConfigManager.get_bot_config()
+            ai_config = ConfigManager.get_ai_config()
+            
+            # 获取数据库路径并创建目录
+            db_path = bot_config.storage.vector_db_path
+            Path(db_path).mkdir(parents=True, exist_ok=True)
+            
+            # 初始化 ChromaDB 客户端（持久化到磁盘）
+            self.client = chromadb.PersistentClient(path=db_path)
+            
+            # 1. 对话记忆集合（原有功能）
+            self.memory_collection = self.client.get_or_create_collection(
+                name="chat_memory",
+                embedding_function=SiliconFlowEmbedding(),
+                metadata={"hnsw:space": "cosine"}  # 使用余弦相似度
+            )
+            
+            # 2. 知识库集合（新增：只读模式，由独立程序写入）
+            self.kb_collection = self.client.get_or_create_collection(
+                name="knowledge_base",
+                embedding_function=SiliconFlowEmbedding(),
+                metadata={"hnsw:space": "cosine"}
+            )
+            
+            # 保存配置
+            self.retrieve_count = bot_config.storage.retrieve_count
+            self.similarity_threshold = bot_config.storage.similarity_threshold
+            self.min_memory_length = bot_config.storage.min_memory_length
+            self.max_memory_per_user = bot_config.storage.max_memory_per_user
+            self.enabled = bot_config.storage.enable_vector_memory
+            
+            logger.info(f"✅ 向量服务初始化成功: {db_path}")
+            logger.info(f"   - 对话记忆集合: chat_memory")
+            logger.info(f"   - 知识库集合: knowledge_base")
+            logger.info(f"   - 检索条数: {self.retrieve_count}")
+            logger.info(f"   - 相似度阈值: {self.similarity_threshold}")
+            
+        except Exception as e:
+            logger.error(f"❌ 向量服务初始化失败: {e}")
+            self.enabled = False
+            raise
+
+    def add_memory(self, user_id: str, text: str, role: str) -> bool:
+        """
+        存入一条记忆
+        
+        Args:
+            user_id: 用户 ID
+            text: 记忆内容
+            role: 角色（"User" 或 "Bot"）
+            
+        Returns:
+            是否成功存储
+        """
+        if not self.enabled:
+            return False
+        
+        # 过滤太短的内容
+        if len(text) < self.min_memory_length:
+            logger.debug(f"⏭️  记忆过短，跳过: {text[:30]}")
+            return False
+        
+        # 检查用户的现有记忆数量
+        existing = self._get_user_memory_count(user_id)
+        if existing >= self.max_memory_per_user:
+            logger.warning(f"⚠️  用户 {user_id} 记忆已满 ({existing})")
+            return False
+        
+        try:
+            # 生成唯一 ID（时间戳 + 随机数）
+            mem_id = f"{user_id}_{int(time.time() * 1000000)}"
+            
+            # 存入对话记忆集合
+            self.memory_collection.add(
+                documents=[text],
+                metadatas=[{
+                    "user_id": user_id,
+                    "role": role,
+                    "timestamp": int(time.time())
+                }],
+                ids=[mem_id]
+            )
+            
+            logger.debug(f"💾 记忆已存储: [{role}] {text[:40]}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 存储记忆失败: {e}")
+            return False
+
+    def add_pair_memory(self, user_id: str, query: str, reply: str) -> bool:
+        """
+        存入 Q&A 对，语义更完整
+        
+        Args:
+            user_id: 用户 ID
+            query: 用户提问
+            reply: 机器人回复
+            
+        Returns:
+            是否成功存储
+        """
+        if not self.enabled:
+            return False
+        
+        try:
+            # 将 Q&A 组合成一条记忆
+            combined_text = f"User问: {query}\nBot答: {reply}"
+            
+            # 生成唯一 ID
+            mem_id = f"{user_id}_{int(time.time() * 1000000)}"
+            
+            # 存入对话记忆集合
+            self.memory_collection.add(
+                documents=[combined_text],
+                metadatas=[{
+                    "user_id": user_id,
+                    "role": "Pair",
+                    "timestamp": int(time.time()),
+                    "query": query,
+                    "reply": reply
+                }],
+                ids=[mem_id]
+            )
+            
+            logger.debug(f"💾 Q&A 对已存储: {query[:30]} -> {reply[:30]}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 存储 Q&A 对失败: {e}")
+            return False
+
+    def search_memory(
+        self, 
+        user_id: str, 
+        query_text: str, 
+        k: Optional[int] = None,
+        max_tokens: int = 500
+    ) -> str:
+        """
+        检索相关记忆（优化版：时间权重 + 重要度 + token 上限）
+        
+        Args:
+            user_id: 用户 ID
+            query_text: 查询文本
+            k: 检索数量（默认使用配置值）
+            max_tokens: 返回记忆的最大 token 数（约等于字符数/2）
+            
+        Returns:
+            格式化的记忆摘要字符串
+        """
+        if not self.enabled:
+            return ""
+        
+        # ===== 1. 短文本/无效文本跳过 =====
+        query_stripped = query_text.strip()
+        if len(query_stripped) < 4:
+            logger.debug(f"⏭️ [{user_id}] 查询过短，跳过记忆检索: {query_stripped}")
+            return ""
+        
+        # 语气词/无意义词检测
+        skip_patterns = {"嗯", "哦", "好", "啊", "呢", "吧", "了", "在吗", "在不", "你好"}
+        if query_stripped in skip_patterns:
+            logger.debug(f"⏭️ [{user_id}] 无意义查询，跳过记忆检索: {query_stripped}")
+            return ""
+        
+        try:
+            # ===== 2. 向量检索：Top-K 粗筛 =====
+            fetch_count = (k or self.retrieve_count) + 5  # 多取几条用于重排
+            
+            results = self.memory_collection.query(
+                query_texts=[query_text],
+                n_results=fetch_count,
+                where={"user_id": user_id}
+            )
+            
+            documents = results.get('documents', [[]])[0]
+            metadatas = results.get('metadatas', [[]])[0]
+            distances = results.get('distances', [[]])[0]
+            
+            if not documents:
+                logger.debug(f"🔍 [{user_id}] 未检索到记忆")
+                return ""
+            
+            # ===== 3. 重排序：时间权重 + 重要度 + 相似度 =====
+            current_time = int(time.time())
+            # 时间衰减参数：τ = 7 天（秒）
+            tau = 7 * 24 * 3600
+            
+            scored_results = []
+            for doc, meta, dist in zip(documents, metadatas, distances):
+                similarity = 1 - dist
+                
+                # 基础相似度阈值（短文本时提高阈值）
+                threshold = self.similarity_threshold
+                if len(query_stripped) < 8:
+                    threshold = min(threshold + 0.1, 0.7)
+                
+                if similarity < threshold:
+                    continue
+                
+                # 时间权重：freshness = exp(-age / τ)
+                created_at = meta.get("timestamp", 0)
+                age = max(current_time - created_at, 0)
+                import math
+                freshness = math.exp(-age / tau)
+                
+                # 重要度权重：summary 类型记忆权重更高
+                importance = 1.0
+                if meta.get("memory_type") == "summary":
+                    importance = 1.5
+                elif meta.get("role") == "Pair":
+                    importance = 1.2
+                
+                # 综合得分：sim * (1 + α * freshness) + β * importance
+                alpha = 0.3
+                beta = 0.1
+                combined_score = similarity * (1 + alpha * freshness) + beta * importance
+                
+                scored_results.append({
+                    "doc": doc,
+                    "meta": meta,
+                    "similarity": similarity,
+                    "freshness": freshness,
+                    "importance": importance,
+                    "score": combined_score
+                })
+            
+            if not scored_results:
+                logger.debug(f"🔍 [{user_id}] 记忆相似度过低")
+                return ""
+            
+            # 按综合得分排序
+            scored_results.sort(key=lambda x: x["score"], reverse=True)
+            
+            # ===== 4. Token 上限控制 =====
+            memory_lines = []
+            total_chars = 0
+            max_chars = max_tokens * 2  # 粗略估算：1 token ≈ 2 字符
+            
+            for r in scored_results:
+                doc = r["doc"]
+                doc_chars = len(doc)
+                
+                if total_chars + doc_chars > max_chars:
+                    break
+                
+                role = r["meta"].get('role', 'Unknown')
+                memory_lines.append(f"- [{role}] {doc}")
+                total_chars += doc_chars
+            
+            if not memory_lines:
+                return ""
+            
+            result_text = "\n".join(memory_lines)
+            logger.debug(f"🔍 [{user_id}] 检索到 {len(memory_lines)} 条记忆 (约 {total_chars//2} tokens)")
+            return result_text
+            
+        except Exception as e:
+            logger.error(f"❌ 检索记忆失败: {e}")
+            return ""
+
+    def search_knowledge(
+        self, 
+        query_text: str, 
+        k: Optional[int] = None,
+        use_advanced_strategy: bool = True,
+        conversation_history: Optional[List[str]] = None,
+        max_tokens: int = 400
+    ) -> str:
+        """
+        检索知识库（v2.0 多层次检索优化版 + token 上限）
+        
+        Args:
+            query_text: 查询文本
+            k: 检索数量（默认 4 条，后续会重排序筛选）
+            use_advanced_strategy: 是否使用高级检索策略
+            conversation_history: 对话历史（用于场景识别）
+            max_tokens: 返回知识的最大 token 数
+            
+        Returns:
+            格式化的知识片段字符串（按照标准格式输出）
+        """
+        if not self.enabled:
+            return ""
+        
+        # ===== 短文本跳过（知识库阈值比记忆宽松一点）=====
+        query_stripped = query_text.strip()
+        if len(query_stripped) < 3:
+            logger.debug(f"⏭️ 查询过短，跳过知识库检索: {query_stripped}")
+            return ""
+        
+        # 纯语气词跳过
+        skip_patterns = {"嗯", "哦", "好", "啊", "呢", "吧", "了"}
+        if query_stripped in skip_patterns:
+            return ""
+        
+        try:
+            # 从配置读取默认返回数量
+            if k is None:
+                try:
+                    import toml
+                    from pathlib import Path
+                    config_path = Path(__file__).parent.parent.parent / "configs" / "retrieval_config.toml"
+                    if config_path.exists():
+                        retrieval_config = toml.load(str(config_path))
+                        k = retrieval_config.get("retrieval", {}).get("default_result_count", 4)
+                    else:
+                        k = 4
+                except Exception:
+                    k = 4  # 默认 4 条
+            
+            # 获取检索策略
+            strategy = get_retrieval_strategy() if use_advanced_strategy else None
+            
+            # 场景识别
+            scene = SceneType.UNKNOWN
+            if strategy:
+                scene = strategy.identify_scene(query_text, conversation_history)
+                logger.debug(f"🎭 检索场景: {scene.value}")
+            
+            # 查询知识库（多取一些用于重排序）
+            fetch_count = k * 3 if use_advanced_strategy else k
+            results = self.kb_collection.query(
+                query_texts=[query_text],
+                n_results=fetch_count
+            )
+            
+            # 解析结果
+            documents = results.get('documents', [[]])[0]
+            metadatas = results.get('metadatas', [[]])[0]
+            distances = results.get('distances', [[]])[0]
+            
+            if not documents:
+                logger.debug(f"🔍 知识库未检索到相关内容")
+                return ""
+            
+            # 转换为统一格式
+            raw_results = []
+            for doc, meta, dist in zip(documents, metadatas, distances):
+                similarity = 1 - dist  # ChromaDB distance 转 similarity
+                raw_results.append({
+                    "content": doc,
+                    "source": meta.get('source', 'Unknown'),
+                    "similarity": similarity
+                })
+            
+            # 使用高级检索策略进行重排序
+            if strategy:
+                # 重排序
+                reranked = strategy.rerank_results(raw_results, query_text, scene)
+                
+                # 阈值过滤
+                filtered = strategy.filter_by_threshold(reranked, min_score=self.similarity_threshold)
+                
+                if not filtered:
+                    logger.debug(f"🔍 知识库重排序后无符合条件的结果")
+                    return ""
+                
+                # 格式化输出（限制到 k 条）
+                actual_count = min(len(filtered), k)
+                result_text = strategy.format_results(filtered, max_results=k)
+                logger.info(f"🔍 知识库检索到 {actual_count} 条相关内容 (场景: {scene.value})")
+                return result_text
+            
+            else:
+                # 简单模式：仅按相似度阈值过滤
+                filtered_results = [
+                    r for r in raw_results 
+                    if r["similarity"] >= self.similarity_threshold
+                ]
+                
+                if not filtered_results:
+                    logger.debug(f"🔍 知识库相似度过低")
+                    return ""
+                
+                # 格式化输出（简单模式）
+                knowledge_lines = []
+                for i, r in enumerate(filtered_results[:k], 1):
+                    source = r["source"]
+                    title = source.rsplit('.', 1)[0] if '.' in source else source
+                    
+                    knowledge_lines.append(
+                        f"{i}. 标题：{title}\n"
+                        f"   内容：{r['content']}\n"
+                        f"   相关性：{r['similarity']:.2f}\n"
+                        f"   搜索类型：vector"
+                    )
+                
+                result_text = "\n".join(knowledge_lines)
+                logger.debug(f"🔍 知识库检索到 {len(filtered_results)} 条相关内容")
+                return result_text
+            
+        except Exception as e:
+            logger.error(f"❌ 检索知识库失败: {e}")
+            return ""
+    
+    def search_knowledge_with_context(
+        self,
+        query_text: str,
+        conversation_history: List[str],
+        k: int = 3
+    ) -> str:
+        """
+        带上下文的知识库检索（推荐使用）
+        
+        Args:
+            query_text: 当前查询
+            conversation_history: 最近的对话历史
+            k: 返回结果数量
+            
+        Returns:
+            格式化的知识片段
+        """
+        return self.search_knowledge(
+            query_text=query_text,
+            k=k,
+            use_advanced_strategy=True,
+            conversation_history=conversation_history
+        )
+
+    def _get_user_memory_count(self, user_id: str) -> int:
+        """获取用户的记忆条数"""
+        try:
+            results = self.memory_collection.get(
+                where={"user_id": user_id}
+            )
+            return len(results.get('ids', []))
+        except Exception as e:
+            logger.warning(f"⚠️  获取用户记忆数失败: {e}")
+            return 0
+
+    def clear_user_memory(self, user_id: str) -> bool:
+        """清空某个用户的所有记忆（谨慎使用）"""
+        try:
+            self.memory_collection.delete(
+                where={"user_id": user_id}
+            )
+            logger.warning(f"🗑️  已清空用户 {user_id} 的所有记忆")
+            return True
+        except Exception as e:
+            logger.error(f"❌ 清空记忆失败: {e}")
+            return False
+
+    def get_memory_stats(self, user_id: str) -> Dict[str, Any]:
+        """获取用户的记忆统计信息"""
+        try:
+            results = self.memory_collection.get(
+                where={"user_id": user_id}
+            )
+            
+            memory_count = len(results.get('ids', []))
+            metadatas = results.get('metadatas', [])
+            
+            # 统计不同角色的记忆
+            role_counts = {}
+            for meta in metadatas:
+                role = meta.get('role', 'Unknown')
+                role_counts[role] = role_counts.get(role, 0) + 1
+            
+            return {
+                "total": memory_count,
+                "by_role": role_counts,
+                "last_updated": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"❌ 获取统计信息失败: {e}")
+            return {"total": 0, "error": str(e)}
+    
+    def get_knowledge_stats(self) -> Dict[str, Any]:
+        """获取知识库统计信息（新增功能）"""
+        try:
+            # 获取所有知识库条目
+            results = self.kb_collection.get()
+            
+            total_count = len(results.get('ids', []))
+            metadatas = results.get('metadatas', [])
+            
+            # 统计不同来源的知识
+            source_counts = {}
+            for meta in metadatas:
+                source = meta.get('source', 'Unknown')
+                source_counts[source] = source_counts.get(source, 0) + 1
+            
+            return {
+                "total": total_count,
+                "by_source": source_counts,
+                "last_checked": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"❌ 获取知识库统计失败: {e}")
+            return {"total": 0, "error": str(e)}
+
+
+# 全局单例
+_vector_service: Optional[VectorService] = None
+
+
+def get_vector_service() -> VectorService:
+    """获取全局向量服务单例"""
+    global _vector_service
+    if _vector_service is None:
+        _vector_service = VectorService()
+    return _vector_service

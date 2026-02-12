@@ -1,0 +1,104 @@
+# ============================================================
+# Yuki Bot .gitignore
+# ============================================================
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============ 虚拟环境 ============
+venv/
+ENV/
+env/
+.venv
+
+# ============ IDE ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.vs/
+.kiro/
+
+# ============ 日志文件 ============
+logs/
+*.log
+
+# ============ 数据文件 ============
+# 数据库文件
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backup_*/
+data/chroma_db/
+data/memory_v2/
+
+# 保留数据目录结构
+!data/.gitkeep
+
+# ============ 配置文件（包含敏感信息）============
+.env
+# 保留示例配置
+!.env.example
+
+# ============ 表情包和媒体文件 ============
+emoji/*.image
+emoji/*.jpg
+emoji/*.png
+emoji/*.gif
+# 保留表情包目录结构
+!emoji/.gitkeep
+
+# ============ 知识库文档（可能包含版权内容）============
+knowledge_docs/*.txt
+knowledge_docs/*.md
+# 保留知识库目录结构和示例
+!knowledge_docs/.gitkeep
+!knowledge_docs/README.md
+
+# ============ 临时文件 ============
+*.tmp
+*.temp
+*.cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ============ 向量索引文件 ============
+*.faiss
+*.pkl
+*.index
+
+# ============ 其他 ============
+# 测试脚本目录
+test请放置所有测试脚本/
+# 旧版本备份
+Yuki_botv1.1/
+# Web 工具
+webtools/
+# GUI 构建产物
+botGUI/build/
+botGUI/dist/

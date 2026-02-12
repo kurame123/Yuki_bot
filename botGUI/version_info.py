@@ -1,0 +1,45 @@
+"""
+生成 Windows 版本信息文件
+"""
+from pathlib import Path
+
+VERSION_INFO = """
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'080404b0',
+        [StringStruct(u'CompanyName', u'Yuki Bot'),
+        StringStruct(u'FileDescription', u'Yuki Bot GUI 控制台'),
+        StringStruct(u'FileVersion', u'1.0.0.0'),
+        StringStruct(u'InternalName', u'YukiBotGUI'),
+        StringStruct(u'LegalCopyright', u'Copyright © 2025'),
+        StringStruct(u'OriginalFilename', u'YukiBotGUI.exe'),
+        StringStruct(u'ProductName', u'Yuki Bot GUI'),
+        StringStruct(u'ProductVersion', u'1.0.0.0')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
+  ]
+)
+"""
+
+def create_version_file():
+    """创建版本信息文件"""
+    version_file = Path(__file__).parent / "version_info.txt"
+    version_file.write_text(VERSION_INFO.strip(), encoding="utf-8")
+    return version_file
+
+if __name__ == "__main__":
+    path = create_version_file()
+    print(f"版本信息文件已创建: {path}")

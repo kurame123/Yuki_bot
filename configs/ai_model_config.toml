@@ -1,0 +1,188 @@
+# AI 模型配置 - 两阶段推理流程
+# 支持多个 API 供应商
+
+# ============ API 供应商配置 ============
+# 可以配置多个供应商，每个模型可以选择使用哪个供应商
+
+[providers.siliconflow]
+# 硅基流动 API
+api_base = "https://api.siliconflow.cn/v1"
+api_key = ""
+timeout = 60
+
+[providers.free_llm]
+# 以下服务不可用请使用硅基流动
+api_base = "https://free-llm.cups.moe/v1"
+api_key = ""  # 如果不需要 key 就留空
+timeout = 120
+
+# ============ 全局配置 ============
+[common]
+# 默认使用的供应商（可被各模型单独覆盖）
+default_provider = "siliconflow"
+
+# 全局请求超时时间（可被供应商或模型覆盖）
+timeout = 60
+
+# ============ 阶段 1：场景整理模型 ============
+[organizer]
+# 使用的供应商（留空则用 common.default_provider）
+provider = "siliconflow"
+
+model_name = "deepseek-ai/DeepSeek-V3.2"
+
+# 生成参数（整理任务需要确定性和稳定性，temperature 应较低）
+temperature = 0.3
+max_tokens = 200  # 极简输出只需要很少 token
+
+# 超时时间（可覆盖供应商的 timeout）
+timeout = 60
+
+# 是否启用此阶段（可通过此配置快速禁用整理阶段进行调试）
+enabled = true
+
+# Organizer 专用的系统提示词（用于生成记忆摘要）
+# 职责：分析用户关系和历史互动，产出 ≤100 字的记忆摘要
+system_prompt = """你是月代雪的记忆整理员。根据用户消息和历史对话记忆，详细概括月代雪与对方之间的记忆摘要。
+
+检索到能可的相关记忆(包含纯文本和关系说明):
+{memory_content}
+
+【输出要求】
+1. 先判断当前话题是什么
+2. 从记忆中筛选与当前话题相关的内容(忽略无关记忆)
+3. 整理成简洁的背景摘要，包含:
+   - 当前在聊什么
+   - 精确到时间的相关历史事实(如有)
+【格式】直接输出摘要文本，可以详细，最多230字，不要分点，不要给回复建议"""
+
+# ============ 阶段 1.5：知识库整理模型 ============
+[kb_organizer]
+# 使用的供应商（留空则用 organizer 的配置）
+provider = ""
+
+# 模型名称（留空则用 organizer 的模型）
+model_name = ""
+
+# 生成参数
+temperature = 0.2  # 更低的温度，保证客观性
+max_tokens = 300   # 知识库摘要可以稍长
+
+# 超时时间
+timeout = 60
+
+# 是否启用（如果禁用，直接使用原始知识库内容）
+enabled = true
+
+# 知识库整理的系统提示词
+system_prompt = """你是知识库整理助手。从检索到的知识库中提取与用户消息相关的信息。
+
+【输出要求】
+1. 只输出与用户消息直接相关的信息
+2. 客观、简洁、清晰，不超过300字
+3. 如果知识库内容与用户消息无关，输出"无相关知识"
+4. 不要编造信息，只基于提供的知识库内容
+5. 保留关键设定和关系，去除冗余描述"""
+
+# ============ 阶段 2：回复生成模型 ============
+[generator]
+# 使用的供应商（留空则用 common.default_provider）
+provider = "siliconflow"
+
+model_name = "moonshotai/Kimi-K2-Thinking"
+
+# 生成参数
+temperature = 0.8
+max_tokens = 2000
+
+# 该模型专属的超时时间
+timeout = 120
+
+# 是否启用此阶段
+enabled = true
+
+# ============ 嵌入模型配置 ============
+[embedding]
+# 使用的供应商（嵌入模型通常只有硅基支持）
+provider = "siliconflow"
+
+# 用于将文本转化为向量的模型
+model_name = "BAAI/bge-m3"
+
+# 批处理大小（个人使用设为 1）
+batch_size = 1
+
+# 嵌入向量维度（bge-m3 是 1024）
+vector_dim = 1024
+
+# ============ 视觉模型配置 ============
+[vision]
+# 使用的供应商
+provider = "siliconflow"
+
+# 用于识别表情包内容的视觉模型
+model_name = "Qwen/Qwen3-VL-32B-Instruct"
+
+# 生成参数
+temperature = 0.3
+max_tokens = 100
+
+# 超时时间（QQ 图片 URL 下载较慢，需要较长超时）
+timeout = 60
+
+# ============ 审查模型 ============
+[guard]
+# 使用的供应商
+provider = "siliconflow"
+
+# 用于检测注入攻击的廉价模型
+model_name = "deepseek-ai/DeepSeek-V3.2"
+
+# 生成参数
+temperature = 0.5
+max_tokens = 10
+
+# 超时时间
+timeout = 15
+
+# ============ 工具类模型 ============
+[utility]
+provider = "siliconflow"
+model_name = "deepseek-ai/DeepSeek-V3.2"
+
+# 生成参数
+temperature = 0.5
+max_tokens = 2048
+
+# 超时时间
+timeout = 45
+
+
+# ============ 图片描述配置（用于对话） ============
+[vision_caption]
+# 是否启用图片识别参与对话
+enabled = true
+
+# 图片描述提示词（简短客观，用于当成聊天内容）
+prompt = "请用一句到两句简短自然的中文口语，客观描述这张图片的主要内容和气氛。不要分析用户意图，不要扩写故事，只描述你看到的东西。"
+
+# 描述最大长度（超过会截断）
+max_length = 80
+
+# 生成参数（低温度保证客观描述）
+temperature = 0.3
+max_tokens = 100
+
+# 超时时间（QQ 图片 URL 下载较慢，需要较长超时）
+timeout = 60
+
+# ============ 错误处理 ============
+[fallback]
+# 当两个阶段都失败时，返回的兜底回复
+error_reply = "网络错误，请稍后再试"
+
+# 当整理阶段失败但生成阶段能用时，是否跳过整理直接生成？
+# true: 更快但可能准确度下降
+# false: 等待整理阶段成功或失败后返回错误
+skip_organizer_on_failure = false
+

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识图谱 - Yuki Bot</title>
+    <link rel="stylesheet" href="/admin/static/css/common.css">
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .header .subtitle {
+            margin-top: 5px;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .controls-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .control-group label {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .control-group input,
+        .control-group select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .graph-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        #graph {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card .label {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .node-details {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .node-details.active {
+            display: block;
+        }
+        
+        .node-details h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .node-details .info-row {
+            display: flex;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .node-details .info-row:last-child {
+            border-bottom: none;
+        }
+        
+        .node-details .info-label {
+            font-weight: 500;
+            color: #666;
+            width: 120px;
+        }
+        
+        .node-details .info-value {
+            color: #333;
+            flex: 1;
+        }
+        
+        .relations-list {
+            margin-top: 15px;
+        }
+        
+        .relation-item {
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🕸️ 知识图谱可视化</h1>
+        <div class="subtitle">RAG 知识图谱管理与可视化</div>
+    </div>
+    
+    <div class="container">
+        <!-- 统计卡片 -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">总节点数</div>
+                <div class="value" id="totalNodes">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">总关系数</div>
+                <div class="value" id="totalEdges">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">用户数</div>
+                <div class="value" id="totalUsers">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">实体类型</div>
+                <div class="value" id="entityTypes">-</div>
+            </div>
+        </div>
+        
+        <!-- 控制面板 -->
+        <div class="controls">
+            <div class="controls-row">
+                <div class="control-group">
+                    <label for="userSelect">用户:</label>
+                    <select id="userSelect">
+                        <option value="">全部用户</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="entityType">实体类型:</label>
+                    <select id="entityType">
+                        <option value="">全部类型</option>
+                        <option value="人物">人物</option>
+                        <option value="地点">地点</option>
+                        <option value="物品">物品</option>
+                        <option value="事件">事件</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label for="searchInput">搜索:</label>
+                    <input type="text" id="searchInput" placeholder="搜索实体名称...">
+                </div>
+                
+                <button class="btn btn-primary" onclick="loadGraph()">🔄 刷新</button>
+                <button class="btn btn-secondary" onclick="resetView()">🎯 重置视图</button>
+                <button class="btn btn-danger" onclick="clearGraph()">🗑️ 清空图谱</button>
+            </div>
+        </div>
+        
+        <!-- 图谱容器 -->
+        <div class="graph-container">
+            <div id="graph"></div>
+        </div>
+        
+        <!-- 节点详情 -->
+        <div class="node-details" id="nodeDetails">
+            <h3>节点详情</h3>
+            <div class="info-row">
+                <div class="info-label">实体名称:</div>
+                <div class="info-value" id="detailEntity">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">实体类型:</div>
+                <div class="info-value" id="detailType">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">用户ID:</div>
+                <div class="info-value" id="detailUser">-</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">创建时间:</div>
+                <div class="info-value" id="detailTime">-</div>
+            </div>
+            
+            <h4 style="margin-top: 20px;">关联关系</h4>
+            <div class="relations-list" id="relationsList"></div>
+        </div>
+    </div>
+    
+    <script>
+        let network = null;
+        let nodes = null;
+        let edges = null;
+        let allData = null;
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUsers();
+            loadStats();
+            loadGraph();
+        });
+        
+        // 加载用户列表
+        async function loadUsers() {
+            try {
+                const response = await fetch('/admin/api/graph/users');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const select = document.getElementById('userSelect');
+                    result.data.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.user_id;
+                        option.textContent = `${user.user_id} (${user.node_count} 节点)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载用户列表失败:', error);
+            }
+        }
+        
+        // 加载统计信息
+        async function loadStats() {
+            try {
+                const response = await fetch('/admin/api/graph/stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('totalNodes').textContent = result.data.total_nodes;
+                    document.getElementById('totalEdges').textContent = result.data.total_edges;
+                    document.getElementById('totalUsers').textContent = result.data.total_users;
+                    document.getElementById('entityTypes').textContent = result.data.entity_types;
+                }
+            } catch (error) {
+                console.error('加载统计信息失败:', error);
+            }
+        }
+        
+        // 加载图谱数据
+        async function loadGraph() {
+            const userId = document.getElementById('userSelect').value;
+            const entityType = document.getElementById('entityType').value;
+            const search = document.getElementById('searchInput').value;
+            
+            try {
+                const params = new URLSearchParams();
+                if (userId) params.append('user_id', userId);
+                if (entityType) params.append('entity_type', entityType);
+                if (search) params.append('search', search);
+                
+                const response = await fetch(`/admin/api/graph/data?${params}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    allData = result.data;
+                    renderGraph(result.data);
+                    loadStats();
+                } else {
+                    alert('加载失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('加载图谱失败:', error);
+                alert('加载失败: ' + error.message);
+            }
+        }
+        
+        // 渲染图谱
+        function renderGraph(data) {
+            const container = document.getElementById('graph');
+            
+            // 准备节点数据
+            const nodesArray = data.nodes.map(node => ({
+                id: node.id,
+                label: node.entity,
+                title: `${node.entity}\n类型: ${node.entity_type}\n用户: ${node.user_id}`,
+                color: getNodeColor(node.entity_type),
+                font: { size: 14 },
+                data: node
+            }));
+            
+            // 准备边数据
+            const edgesArray = data.edges.map(edge => ({
+                from: edge.source_id,
+                to: edge.target_id,
+                label: edge.relation,
+                arrows: 'to',
+                font: { size: 12, align: 'middle' },
+                data: edge
+            }));
+            
+            nodes = new vis.DataSet(nodesArray);
+            edges = new vis.DataSet(edgesArray);
+            
+            const graphData = {
+                nodes: nodes,
+                edges: edges
+            };
+            
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 20,
+                    font: {
+                        size: 14,
+                        color: '#333'
+                    },
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 2,
+                    color: { color: '#848484', highlight: '#667eea' },
+                    smooth: {
+                        type: 'continuous'
+                    },
+                    font: {
+                        size: 12,
+                        align: 'middle',
+                        background: 'white'
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    barnesHut: {
+                        gravitationalConstant: -2000,
+                        centralGravity: 0.3,
+                        springLength: 150,
+                        springConstant: 0.04
+                    },
+                    stabilization: {
+                        iterations: 150
+                    }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200
+                }
+            };
+            
+            network = new vis.Network(container, graphData, options);
+            
+            // 点击节点显示详情
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = nodes.get(nodeId);
+                    showNodeDetails(node.data);
+                }
+            });
+        }
+        
+        // 获取节点颜色
+        function getNodeColor(entityType) {
+            const colors = {
+                '人物': '#667eea',
+                '地点': '#f093fb',
+                '物品': '#4facfe',
+                '事件': '#43e97b',
+                '其他': '#fa709a'
+            };
+            return colors[entityType] || '#999';
+        }
+        
+        // 显示节点详情
+        function showNodeDetails(node) {
+            document.getElementById('detailEntity').textContent = node.entity;
+            document.getElementById('detailType').textContent = node.entity_type;
+            document.getElementById('detailUser').textContent = node.user_id;
+            document.getElementById('detailTime').textContent = new Date(node.created_at * 1000).toLocaleString();
+            
+            // 显示关联关系
+            const relationsList = document.getElementById('relationsList');
+            relationsList.innerHTML = '';
+            
+            const relations = allData.edges.filter(e => 
+                e.source_id === node.id || e.target_id === node.id
+            );
+            
+            if (relations.length === 0) {
+                relationsList.innerHTML = '<div class="relation-item">暂无关联关系</div>';
+            } else {
+                relations.forEach(rel => {
+                    const div = document.createElement('div');
+                    div.className = 'relation-item';
+                    
+                    if (rel.source_id === node.id) {
+                        const target = allData.nodes.find(n => n.id === rel.target_id);
+                        div.textContent = `${node.entity} → ${rel.relation} → ${target.entity}`;
+                    } else {
+                        const source = allData.nodes.find(n => n.id === rel.source_id);
+                        div.textContent = `${source.entity} → ${rel.relation} → ${node.entity}`;
+                    }
+                    
+                    relationsList.appendChild(div);
+                });
+            }
+            
+            document.getElementById('nodeDetails').classList.add('active');
+        }
+        
+        // 重置视图
+        function resetView() {
+            if (network) {
+                network.fit();
+            }
+        }
+        
+        // 清空图谱
+        async function clearGraph() {
+            if (!confirm('确定要清空整个知识图谱吗？此操作不可恢复！')) {
+                return;
+            }
+            
+            const userId = document.getElementById('userSelect').value;
+            
+            try {
+                const response = await fetch('/admin/api/graph/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId || null })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('清空成功');
+                    loadGraph();
+                } else {
+                    alert('清空失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('清空失败:', error);
+                alert('清空失败: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

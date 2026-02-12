@@ -1,0 +1,19 @@
+# 音乐点歌插件配置
+
+[general]
+# 默认使用的平台: "qq" 或 "netease"
+default_platform = "qq"
+
+[qq]
+enable = true
+base_url = "http://127.0.0.1:3101"
+search_path = "/search"
+auth_token = ""
+
+[netease]
+enable = false
+# NeteaseCloudMusicApi 服务地址
+# 本地部署: http://127.0.0.1:3000
+# 服务器部署: https://your-domain.com:3000
+base_url = "http://127.0.0.1:3000"
+search_path = "/search"

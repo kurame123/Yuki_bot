@@ -1,0 +1,35 @@
+# Web 管理后台配置
+
+[server]
+# 后台访问路径前缀
+route_prefix = "/admin"
+
+# 访问 Token（用于简单身份验证）
+# 访问时需要在 URL 添加 ?token=xxx 或 Header: Authorization: Bearer xxx
+# 留空则不需要认证
+access_token = ""
+
+# 是否启用 Web 后台
+enabled = true
+
+[ui]
+# 页面标题
+title = "Yuki Bot 控制台"
+
+# 主题色（CSS 颜色值）
+primary_color = "#60a5fa"      # 浅蓝色
+secondary_color = "#a7f3d0"    # 薄荷绿
+accent_color = "#fda4af"       # 粉色
+
+# Yuki 头像路径（相对于 static 目录）
+avatar_path = "images/yuki_avatar.png"
+
+# 欢迎语
+welcome_message = "今天也要元气满满地陪大家聊天哦～"
+
+[stats]
+# 统计数据刷新间隔（秒）
+refresh_interval = 5
+
+# 日统计保留天数
+daily_stats_retention_days = 30

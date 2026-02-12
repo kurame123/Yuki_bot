@@ -1,0 +1,2 @@
+bash
+python tools/rebuild_knowledge_base.py

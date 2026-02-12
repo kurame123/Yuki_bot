@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yuki Bot 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #60a5fa;
+            --secondary: #a7f3d0;
+            --accent: #fda4af;
+        }
+        body {
+            min-height: 100vh;
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('/admin/static/images/yuki_bg.png');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            filter: blur(3px);
+            z-index: -1;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.3);
+            z-index: -1;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #818cf8);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .cost-value {
+            background: linear-gradient(135deg, #f472b6, #fb923c);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .banner {
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .nav-link {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            color: #4b5563;
+        }
+        .nav-link:hover { background: rgba(96, 165, 250, 0.1); }
+        .nav-link.active {
+            background: linear-gradient(135deg, #60a5fa, #818cf8);
+            color: white;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <!-- Header -->
+    <header class="max-w-6xl mx-auto mb-8">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-pink-300 flex items-center justify-center text-3xl shadow-lg">
+                    🌸
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Yuki Bot 控制台</h1>
+                    <p class="text-gray-500 text-sm">实时数据监控</p>
+                </div>
+            </div>
+            <!-- 导航按钮 -->
+            <nav class="flex gap-2" id="navLinks">
+                <a href="/admin" class="nav-link active">📊 仪表盘</a>
+                <a href="/admin/affection" class="nav-link">💗 好感度</a>
+                <a href="/admin/graph" class="nav-link">🕸️ 知识图谱</a>
+                <a href="/admin/db" class="nav-link">🗂 数据库</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <main class="max-w-6xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- 用户统计 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">👤</span>
+                    <span class="text-gray-600 font-medium">用户总数</span>
+                </div>
+                <div class="stat-value" id="total_users">0</div>
+                <div class="text-sm text-gray-400 mt-2">累计互动用户</div>
+            </div>
+
+            <!-- 收到消息 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">📥</span>
+                    <span class="text-gray-600 font-medium">收到消息</span>
+                </div>
+                <div class="stat-value" id="total_msg_received">0</div>
+                <div class="text-sm text-gray-400 mt-2">
+                    今日: <span id="today_msg_received" class="text-blue-500">0</span>
+                </div>
+            </div>
+
+            <!-- 发送消息 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">📤</span>
+                    <span class="text-gray-600 font-medium">发送消息</span>
+                </div>
+                <div class="stat-value" id="total_msg_sent">0</div>
+                <div class="text-sm text-gray-400 mt-2">
+                    今日: <span id="today_msg_sent" class="text-green-500">0</span>
+                </div>
+            </div>
+
+            <!-- API 成本 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">💰</span>
+                    <span class="text-gray-600 font-medium">API 成本</span>
+                </div>
+                <div class="stat-value cost-value" id="total_cost">¥0.00</div>
+                <div class="text-sm text-gray-400 mt-2">
+                    R1: <span id="r1_cost" class="text-purple-500">¥0</span> |
+                    V3: <span id="v3_cost" class="text-indigo-500">¥0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Token 使用详情 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- R1 模型 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-2xl">🧠</span>
+                    <span class="text-gray-700 font-semibold">DeepSeek-R1 (推理模型)</span>
+                </div>
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-purple-600" id="r1_calls">0</div>
+                        <div class="text-xs text-gray-400">调用次数</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-purple-500" id="r1_input_tokens">0</div>
+                        <div class="text-xs text-gray-400">输入 Tokens</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-purple-400" id="r1_output_tokens">0</div>
+                        <div class="text-xs text-gray-400">输出 Tokens</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- V3 模型 -->
+            <div class="card p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-2xl">⚡</span>
+                    <span class="text-gray-700 font-semibold">DeepSeek-V3 (场景模型)</span>
+                </div>
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-indigo-600" id="v3_calls">0</div>
+                        <div class="text-xs text-gray-400">调用次数</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-indigo-500" id="v3_input_tokens">0</div>
+                        <div class="text-xs text-gray-400">输入 Tokens</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-indigo-400" id="v3_output_tokens">0</div>
+                        <div class="text-xs text-gray-400">输出 Tokens</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图表区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- 消息趋势图 -->
+            <div class="card p-6">
+                <h3 class="text-gray-700 font-semibold mb-4">📊 近 7 天消息趋势</h3>
+                <canvas id="msgChart" height="200"></canvas>
+            </div>
+
+            <!-- 成本趋势图 -->
+            <div class="card p-6">
+                <h3 class="text-gray-700 font-semibold mb-4">💸 近 7 天 API 成本</h3>
+                <canvas id="costChart" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- 配置概览 -->
+        <div class="card p-6">
+            <h3 class="text-gray-700 font-semibold mb-4">⚙️ 当前配置</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-400">机器人昵称:</span>
+                    <span class="text-gray-700 font-medium ml-2" id="bot_nickname">-</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">场景模型:</span>
+                    <span class="text-gray-700 font-medium ml-2" id="organizer_model">-</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">推理模型:</span>
+                    <span class="text-gray-700 font-medium ml-2" id="generator_model">-</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">白名单数量:</span>
+                    <span class="text-gray-700 font-medium ml-2" id="whitelist_count">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center text-gray-400 text-sm mt-8 pb-4">
+            <span class="pulse">🟢</span> 实时更新中 · 
+            最后更新: <span id="last_update">-</span>
+        </footer>
+    </main>
+
+    <script>
+        // 获取 URL 中的 token 参数
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token') || '';
+        
+        // 图表实例
+        let msgChart = null;
+        let costChart = null;
+
+        // 格式化数字
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        // 更新统计数据
+        async function fetchStats() {
+            try {
+                const response = await fetch(`/admin/api/stats?token=${token}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    console.error('Failed to fetch stats:', result.error);
+                    return;
+                }
+
+                const { global: g, today: t, daily } = result.data;
+
+                // 更新全局统计
+                document.getElementById('total_users').textContent = formatNumber(g.total_users);
+                document.getElementById('total_msg_received').textContent = formatNumber(g.total_msg_received);
+                document.getElementById('total_msg_sent').textContent = formatNumber(g.total_msg_sent);
+                document.getElementById('total_cost').textContent = '¥' + g.total_cost.toFixed(2);
+                document.getElementById('r1_cost').textContent = '¥' + g.r1_cost.toFixed(2);
+                document.getElementById('v3_cost').textContent = '¥' + g.v3_cost.toFixed(2);
+
+                // 更新 Token 统计
+                document.getElementById('r1_calls').textContent = formatNumber(g.r1_calls);
+                document.getElementById('r1_input_tokens').textContent = formatNumber(g.r1_input_tokens);
+                document.getElementById('r1_output_tokens').textContent = formatNumber(g.r1_output_tokens);
+                document.getElementById('v3_calls').textContent = formatNumber(g.v3_calls);
+                document.getElementById('v3_input_tokens').textContent = formatNumber(g.v3_input_tokens);
+                document.getElementById('v3_output_tokens').textContent = formatNumber(g.v3_output_tokens);
+
+                // 更新今日统计
+                document.getElementById('today_msg_received').textContent = t.msg_received || 0;
+                document.getElementById('today_msg_sent').textContent = t.msg_sent || 0;
+
+                // 更新时间
+                document.getElementById('last_update').textContent = new Date().toLocaleTimeString();
+
+                // 更新图表
+                updateCharts(daily);
+
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        // 获取配置
+        async function fetchConfig() {
+            try {
+                const response = await fetch(`/admin/api/config?token=${token}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const c = result.data;
+                    document.getElementById('bot_nickname').textContent = c.bot_nickname || '-';
+                    document.getElementById('organizer_model').textContent = c.organizer_model?.split('/').pop() || '-';
+                    document.getElementById('generator_model').textContent = c.generator_model?.split('/').pop() || '-';
+                    document.getElementById('whitelist_count').textContent = c.whitelist_count || 0;
+                }
+            } catch (error) {
+                console.error('Error fetching config:', error);
+            }
+        }
+
+        // 初始化图表
+        function initCharts() {
+            const msgCtx = document.getElementById('msgChart').getContext('2d');
+            msgChart = new Chart(msgCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '收到消息',
+                            data: [],
+                            borderColor: '#60a5fa',
+                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: '发送消息',
+                            data: [],
+                            borderColor: '#a7f3d0',
+                            backgroundColor: 'rgba(167, 243, 208, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            const costCtx = document.getElementById('costChart').getContext('2d');
+            costChart = new Chart(costCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '成本 (RMB)',
+                        data: [],
+                        backgroundColor: 'rgba(251, 146, 60, 0.6)',
+                        borderColor: '#fb923c',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        // 更新图表数据
+        function updateCharts(daily) {
+            if (!daily || daily.length === 0) return;
+
+            const labels = daily.map(d => d.date.slice(5)); // MM-DD
+            const received = daily.map(d => d.msg_received);
+            const sent = daily.map(d => d.msg_sent);
+            const costs = daily.map(d => d.cost);
+
+            msgChart.data.labels = labels;
+            msgChart.data.datasets[0].data = received;
+            msgChart.data.datasets[1].data = sent;
+            msgChart.update();
+
+            costChart.data.labels = labels;
+            costChart.data.datasets[0].data = costs;
+            costChart.update();
+        }
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            fetchStats();
+            fetchConfig();
+
+            // 给导航链接添加 token 参数
+            if (token) {
+                document.querySelectorAll('#navLinks a').forEach(a => {
+                    a.href += '?token=' + token;
+                });
+            }
+
+            // 每 5 秒刷新一次
+            setInterval(fetchStats, 5000);
+        });
+    </script>
+</body>
+</html>
